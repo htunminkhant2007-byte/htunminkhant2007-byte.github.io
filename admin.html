@@ -1,0 +1,293 @@
+
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#090910">
+<title>TMK VIDEO - Super Admin</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#090910;color:white;
+ font-family:Arial,sans-serif;
+}
+header{
+ padding:18px;background:#151520;
+ border-bottom:1px solid #303040;
+ display:flex;justify-content:space-between;
+ align-items:center;
+}
+h1{font-size:21px;margin:0;color:#ff315b}
+main{max-width:850px;margin:auto;padding:18px}
+.panel{
+ background:#171722;border:1px solid #303040;
+ border-radius:14px;padding:18px;margin-bottom:18px;
+}
+input{
+ width:100%;padding:14px;margin:8px 0;
+ background:#090910;color:white;
+ border:1px solid #454556;border-radius:9px;
+ font-size:16px;
+}
+button{
+ border:0;border-radius:9px;padding:12px 17px;
+ background:#ff315b;color:white;
+ font-weight:bold;font-size:14px;
+}
+button:disabled{opacity:.5}
+.secondary{background:#343444}
+.delete{background:#d62845}
+.video{
+ background:#222230;border-radius:10px;
+ padding:14px;margin-top:12px;
+ overflow-wrap:anywhere;
+}
+.video h3{margin:0 0 8px;font-size:16px}
+.small{color:#aaa;font-size:13px;line-height:1.6}
+#dashboard{display:none}
+#status{white-space:pre-wrap;color:#28e0c0}
+#login{max-width:450px;margin:50px auto}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+
+<body>
+
+<header>
+ <h1>TMK VIDEO ADMIN</h1>
+ <button id="logout" class="secondary" style="display:none">
+  Logout
+ </button>
+</header>
+
+<main>
+
+<section id="login" class="panel">
+ <h2>Super Admin Login</h2>
+ <p class="small">Admin အကောင့်ဖြင့်သာ ဝင်ရောက်နိုင်သည်။</p>
+
+ <input id="email" type="email"
+ placeholder="Admin Email">
+
+ <input id="password" type="password"
+ placeholder="Password">
+
+ <button id="loginBtn">Login</button>
+ <p id="loginStatus" class="small"></p>
+</section>
+
+<section id="dashboard">
+
+ <div class="panel">
+  <h2>ဗဟိုထိန်းချုပ်ရေး</h2>
+  <p class="small">TMK VIDEO Super Admin</p>
+  <div class="actions">
+   <button id="refreshBtn">Video စာရင်းပြန်စစ်မယ်</button>
+  </div>
+  <p id="status">စောင့်ဆိုင်းနေသည်...</p>
+ </div>
+
+ <div class="panel">
+  <h2>Video Management</h2>
+  <p class="small">Firebase Video Records</p>
+  <div id="videoList">Video စာရင်း မရှိသေးပါ။</div>
+ </div>
+
+</section>
+
+</main>
+
+<script type="module">
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+
+import {
+ getAuth,
+ signInWithEmailAndPassword,
+ onAuthStateChanged,
+ signOut
+}
+from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+const firebaseConfig = {
+ apiKey: "AIzaSyAQxjXOcFEBRv-yrFsxU1Z7tSLjT74UC_M",
+ authDomain: "tmk-video.firebaseapp.com",
+ databaseURL: "https://tmk-video-default-rtdb.firebaseio.com",
+ projectId: "tmk-video",
+ appId: "1:763253894514:web:5b671edd58fe2d312381eb"
+};
+
+const ADMIN_WORKER =
+ "https://tmk-admin-api.htunminkhant2007.workers.dev";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+const loginBox = document.getElementById("login");
+const dashboard = document.getElementById("dashboard");
+const loginStatus = document.getElementById("loginStatus");
+const statusBox = document.getElementById("status");
+const videoList = document.getElementById("videoList");
+const logoutBtn = document.getElementById("logout");
+
+let currentAdmin = null;
+
+function showStatus(message){
+ statusBox.textContent = message;
+}
+
+async function adminRequest(path, method="GET"){
+ if(!currentAdmin){
+  throw new Error("Admin Login မဝင်ရသေးပါ။");
+ }
+
+ const token = await currentAdmin.getIdToken(true);
+
+ const response = await fetch(ADMIN_WORKER + path,{
+  method,
+  headers:{
+   "Authorization":"Bearer " + token,
+   "Content-Type":"application/json"
+  }
+ });
+
+ const result = await response.json();
+
+ if(!response.ok || result.success === false){
+  throw new Error(result.message || "Request failed");
+ }
+
+ return result;
+}
+
+document.getElementById("loginBtn").onclick = async ()=>{
+ const email = document.getElementById("email").value.trim();
+ const password = document.getElementById("password").value;
+
+ if(!email || !password){
+  loginStatus.textContent = "Email နှင့် Password ဖြည့်ပါ။";
+  return;
+ }
+
+ loginStatus.textContent = "Login ဝင်နေသည်...";
+
+ try{
+  await signInWithEmailAndPassword(auth,email,password);
+  loginStatus.textContent = "Login စစ်ဆေးနေသည်...";
+ }catch(error){
+  loginStatus.textContent = "Login မအောင်မြင်ပါ: " + error.message;
+ }
+};
+
+onAuthStateChanged(auth, async user=>{
+ currentAdmin = user;
+
+ if(!user){
+  loginBox.style.display = "block";
+  dashboard.style.display = "none";
+  logoutBtn.style.display = "none";
+  return;
+ }
+
+ loginBox.style.display = "none";
+ dashboard.style.display = "block";
+ logoutBtn.style.display = "block";
+
+ showStatus("Admin အခွင့်အရေး စစ်ဆေးနေသည်...");
+
+ try{
+  await loadVideos();
+ }catch(error){
+  showStatus("Admin စစ်ဆေးမှု မအောင်မြင်ပါ: " + error.message);
+ }
+});
+
+logoutBtn.onclick = async ()=>{
+ await signOut(auth);
+};
+
+document.getElementById("refreshBtn").onclick = loadVideos;
+
+function getVideoTitle(video,id){
+ return video.title || video.caption ||
+ video.description || video.name || id;
+}
+
+async function loadVideos(){
+ videoList.textContent = "Video စာရင်း ရယူနေသည်...";
+ showStatus("Firebase မှ Video စာရင်း ရယူနေသည်...");
+
+ try{
+  const result = await adminRequest("/admin/videos");
+
+  const videos = result.videos || result.data || {};
+
+  videoList.replaceChildren();
+
+  const entries = Object.entries(videos);
+
+  if(entries.length === 0){
+   videoList.textContent = "Video မရှိသေးပါ။";
+  }else{
+   for(const [id,videoValue] of entries){
+    const video = videoValue || {};
+
+    const card = document.createElement("div");
+    card.className = "video";
+
+    const title = document.createElement("h3");
+    title.textContent = getVideoTitle(video,id);
+
+    const details = document.createElement("div");
+    details.className = "small";
+    details.textContent =
+     "Video ID: " + id +
+     "\nUser: " + (video.username || video.userName || video.uid || "မသိရသေး") +
+     "\nStorage: " + (video.storageProvider || "မသိရသေး");
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "delete";
+    deleteBtn.textContent = "Video Record ဖျက်မယ်";
+
+    deleteBtn.onclick = async ()=>{
+     if(!confirm("ဒီ Video Record ကို ဖျက်မှာ သေချာပါသလား။")) return;
+
+     deleteBtn.disabled = true;
+
+     try{
+      await adminRequest(
+       "/admin/videos/" + encodeURIComponent(id),
+       "DELETE"
+      );
+
+      card.remove();
+      showStatus("Video Record ဖျက်ပြီးပါပြီ။");
+     }catch(error){
+      alert("ဖျက်မရပါ: " + error.message);
+      deleteBtn.disabled = false;
+     }
+    };
+
+    actions.appendChild(deleteBtn);
+    card.append(title,details,actions);
+    videoList.appendChild(card);
+   }
+  }
+
+  showStatus("Admin API ချိတ်ဆက်မှု အောင်မြင်ပါသည်။ Video " + entries.length + " ခု ရှိသည်။");
+
+ }catch(error){
+  videoList.textContent = "Video စာရင်း ရယူမရပါ။";
+  showStatus("အမှား: " + error.message);
+ }
+}
+
+</script>
+</body>
+</html>
